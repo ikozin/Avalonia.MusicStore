@@ -1,4 +1,3 @@
-using Avalonia;
 using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Markup.Xaml;
 using Avalonia.MusicStore.ViewModels;
@@ -6,7 +5,7 @@ using Avalonia.MusicStore.Views;
 
 namespace Avalonia.MusicStore
 {
-    public class App : Application
+    public partial class App : Application
     {
         public override void Initialize()
         {
@@ -19,7 +18,7 @@ namespace Avalonia.MusicStore
             {
                 desktop.MainWindow = new MainWindow
                 {
-                    DataContext = new MainWindowViewModel(),
+                    DataContext = new MainViewModel(),
                 };
             }
 

@@ -1,37 +1,32 @@
-using System.Threading.Tasks;
-using Avalonia;
 using Avalonia.Controls;
-using Avalonia.Markup.Xaml;
+using Avalonia.MusicStore.Messages;
 using Avalonia.MusicStore.ViewModels;
-using Avalonia.ReactiveUI;
-using ReactiveUI;
+using CommunityToolkit.Mvvm.Messaging;
 
 namespace Avalonia.MusicStore.Views
 {
-    public class MainWindow : ReactiveWindow<MainWindowViewModel>
+    public partial class MainWindow : Window
     {
         public MainWindow()
         {
             InitializeComponent();
-#if DEBUG
-            this.AttachDevTools();
-#endif
 
-            this.WhenActivated(d => d(ViewModel.ShowDialog.RegisterHandler(DoShowDialogAsync)));
-        }
+            // The designer cannot open a new window, so we don't register the messenger if we have a design session. 
+            if (Design.IsDesignMode)
+                return;
 
-        private async Task DoShowDialogAsync(InteractionContext<MusicStoreViewModel, AlbumViewModel?> interaction)
-        {
-            var dialog = new MusicStoreWindow();
-            dialog.DataContext = interaction.Input;
+            // Whenever 'Send(new PurchaseAlbumMessage())' is called, invoke this callback on the MainWindow instance:
+            WeakReferenceMessenger.Default.Register<MainWindow, PurchaseAlbumMessage>(this, static (w, m) =>
+            {
+                // Create an instance of MusicStoreWindow and set MusicStoreViewModel as its DataContext.
+                var dialog = new MusicStoreWindow
+                {
+                    DataContext = new MusicStoreViewModel()
+                };
 
-            var result = await dialog.ShowDialog<AlbumViewModel?>(this);
-            interaction.SetOutput(result);
-        }
-
-        private void InitializeComponent()
-        {
-            AvaloniaXamlLoader.Load(this);
+                // Show dialog window and reply with returned AlbumViewModel or null when the dialog is closed.
+                m.Reply(dialog.ShowDialog<AlbumViewModel?>(w));
+            });
         }
     }
 }

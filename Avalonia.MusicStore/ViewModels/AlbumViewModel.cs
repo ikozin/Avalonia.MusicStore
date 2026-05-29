@@ -1,17 +1,16 @@
-using System.Collections.Generic;
+﻿using System;
 using System.Threading.Tasks;
-using System.Linq;
 using Avalonia.Media.Imaging;
-using Avalonia.MusicStore.Backend;
-using ReactiveUI;
+using Avalonia.MusicStore.Models;
+using Avalonia.MusicStore.Services;
 
 namespace Avalonia.MusicStore.ViewModels
 {
-    public class AlbumViewModel : ViewModelBase
+    public partial class AlbumViewModel : ViewModelBase, IEquatable<AlbumViewModel>
     {
-        private Bitmap? _cover;
+        private static readonly AlbumService s_albumService = new();
         private readonly Album _album;
-        
+
         public AlbumViewModel(Album album)
         {
             _album = album;
@@ -20,40 +19,68 @@ namespace Avalonia.MusicStore.ViewModels
         public string Artist => _album.Artist;
 
         public string Title => _album.Title;
-        
-        public Bitmap? Cover
-        {
-            get => _cover;
-            private set => this.RaiseAndSetIfChanged(ref _cover, value);
-        }
 
-        public async Task LoadCover()
+        public Task<Bitmap?> Cover => LoadCoverAsync();
+
+        /// <summary>
+        /// Asynchronously loads and decodes the album cover image, then assigns it to <see cref="Cover"/>.
+        /// </summary>
+        private async Task<Bitmap?> LoadCoverAsync()
         {
-            await using (var imageStream =await _album.LoadCoverBitmapAsync())
+            try
             {
-                Cover = await Task.Run(() => Bitmap.DecodeToWidth(imageStream, 400));
+                // We wait a few ms to demonstrate that the images are loaded in the background. 
+                // Remove this line in production.
+                await Task.Delay(200);
+                
+                await using (var imageStream = await s_albumService.LoadCoverBitmapAsync(_album))
+                {
+                    return await Task.Run(() => Bitmap.DecodeToWidth(imageStream, 400));
+                }
+            }
+            catch
+            {
+                return null;
             }
         }
 
-        public static async Task<IEnumerable<AlbumViewModel>> LoadCached()
-        {
-            return (await Album.LoadCachedAsync()).Select(x => new AlbumViewModel(x));
-        }
-
+        /// <summary>
+        /// Saves the album and its cover to cache.
+        /// </summary>        
         public async Task SaveToDiskAsync()
         {
-            await _album.SaveAsync();
+            await s_albumService.SaveAsync(_album);
 
-            if (Cover != null)
+            if (await LoadCoverAsync() is { } cover)
             {
                 await Task.Run(() =>
                 {
-                    using (var fs = _album.SaveCoverBitmapSteam())
+                    using (var fs = s_albumService.SaveCoverBitmapStream(_album))
                     {
-                        Cover.Save(fs);
+                        cover.Save(fs);
                     }
                 });
             }
+        }
+
+        public bool Equals(AlbumViewModel? other)
+        {
+            if (other is null) return false;
+            if (ReferenceEquals(this, other)) return true;
+            return _album.Equals(other._album);
+        }
+
+        public override bool Equals(object? obj)
+        {
+            if (obj is null) return false;
+            if (ReferenceEquals(this, obj)) return true;
+            if (obj.GetType() != GetType()) return false;
+            return Equals((AlbumViewModel)obj);
+        }
+
+        public override int GetHashCode()
+        {
+            return _album.GetHashCode();
         }
     }
 }

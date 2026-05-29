@@ -1,100 +1,82 @@
-using System;
-using System.Collections.ObjectModel;
-using System.Linq;
-using System.Reactive;
-using System.Reactive.Linq;
+﻿using System.Collections.ObjectModel;
 using System.Threading;
-using Avalonia.MusicStore.Backend;
-using ReactiveUI;
+using System.Threading.Tasks;
+using Avalonia.MusicStore.Messages;
+using Avalonia.MusicStore.Services;
+using CommunityToolkit.Mvvm.ComponentModel;
+using CommunityToolkit.Mvvm.Input;
+using CommunityToolkit.Mvvm.Messaging;
 
 namespace Avalonia.MusicStore.ViewModels
 {
-    public class MusicStoreViewModel : ViewModelBase
+    public partial class MusicStoreViewModel : ViewModelBase
     {
-        private string? _searchText;
-        private bool _isBusy;
+        private static readonly AlbumService s_albumService = new();
         private CancellationTokenSource? _cancellationTokenSource;
-        private AlbumViewModel? _selectedAlbum;
 
-        public MusicStoreViewModel()
-        {
-            this.WhenAnyValue(x => x.SearchText)
-                .Where(x => !string.IsNullOrWhiteSpace(x))
-                .Throttle(TimeSpan.FromMilliseconds(400))
-                .ObserveOn(RxApp.MainThreadScheduler)
-                .Subscribe(DoSearch!);
-            
-            BuyMusicCommand = ReactiveCommand.CreateFromTask(async () =>
-            {
-                if (SelectedAlbum is { })
-                {
-                    await SelectedAlbum.SaveToDiskAsync();
-                    return SelectedAlbum;
-                }
+        [ObservableProperty]
+        public partial string? SearchText { get; set; }
 
-                return null;
-            });
-        }
-        
-        public string? SearchText
-        {
-            get => _searchText;
-            set => this.RaiseAndSetIfChanged(ref _searchText, value);
-        }
+        [ObservableProperty]
+        public partial bool IsBusy { get; private set; }
 
-        public bool IsBusy
-        {
-            get => _isBusy;
-            set => this.RaiseAndSetIfChanged(ref _isBusy, value);
-        }
-        
-        public ReactiveCommand<Unit, AlbumViewModel?> BuyMusicCommand { get; }
+        [ObservableProperty]
+        [NotifyCanExecuteChangedFor(nameof(BuyMusicCommand))]
+        public partial AlbumViewModel? SelectedAlbum { get; set; }
 
         public ObservableCollection<AlbumViewModel> SearchResults { get; } = new();
-        
-        public AlbumViewModel? SelectedAlbum
+
+        /// <summary>
+        /// This relay command sends a message indicating that the selected album has been purchased, which will notify music store view to close.
+        /// </summary>
+        [RelayCommand (CanExecute = nameof(CanBuyMusic))]
+        private void BuyMusic()
         {
-            get => _selectedAlbum;
-            set => this.RaiseAndSetIfChanged(ref _selectedAlbum, value);
+            if (SelectedAlbum != null)
+            {
+                var album_exists = WeakReferenceMessenger.Default.Send(new CheckAlbumAlreadyExistsMessage(SelectedAlbum));
+                if (album_exists)
+                {
+                    WeakReferenceMessenger.Default.Send(new NotificationMessage("This album was already added"));
+                }
+                else
+                {
+                    WeakReferenceMessenger.Default.Send(new MusicStoreClosedMessage(SelectedAlbum));
+                }
+            }
         }
+
+        private bool CanBuyMusic() => SelectedAlbum != null;
         
-        private async void DoSearch(string s)
+        /// <summary>
+        /// Performs an asynchronous search for albums based on the provided term and updates the results.
+        /// </summary>
+        private async Task DoSearch(string? term)
         {
+            _cancellationTokenSource?.Cancel();
+            _cancellationTokenSource = new CancellationTokenSource();
+            var cancellationToken = _cancellationTokenSource.Token;
+
             IsBusy = true;
             SearchResults.Clear();
-            
-            _cancellationTokenSource?.Cancel();
 
-            _cancellationTokenSource = new CancellationTokenSource();
-
-            var albums = await Album.SearchAsync(s);
+            var albums = await s_albumService.SearchAsync(term);
 
             foreach (var album in albums)
             {
                 var vm = new AlbumViewModel(album);
-                
                 SearchResults.Add(vm);
-            }
-
-            if (!_cancellationTokenSource.IsCancellationRequested)
-            {
-                 LoadCovers(_cancellationTokenSource.Token);
             }
 
             IsBusy = false;
         }
 
-        private async void LoadCovers(CancellationToken cancellationToken)
+        /// <summary>
+        /// Triggered when the search text in music store view changes and initiates a new search operation.
+        /// </summary>
+        partial void OnSearchTextChanged(string? value)
         {
-            foreach (var album in SearchResults.ToList())
-            {
-                await album.LoadCover();
-
-                if (cancellationToken.IsCancellationRequested)
-                {
-                    return;
-                }
-            }
+            _ = DoSearch(SearchText);
         }
     }
 }
